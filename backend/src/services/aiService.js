@@ -10,14 +10,29 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 const VALID_SENIORITIES = ['Junior', 'Mid', 'Senior', 'Lead', 'Not Specified'];
 
+const withRetry = async (fn, retries = 3, delayMs = 3000) => {
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const isRetryable = err.message?.includes('503') || err.message?.includes('overloaded') || err.message?.includes('unavailable');
+      if (isRetryable && i < retries - 1) {
+        await new Promise(r => setTimeout(r, delayMs));
+      } else {
+        throw err;
+      }
+    }
+  }
+};
+
 const parseJobDescription = async (jobDescription) => {
   const model = genAI.getGenerativeModel({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-2.5-flash-lite',
     generationConfig: { responseMimeType: 'application/json' }
   });
 
   // ── Call 1: Parse the job description into structured fields ──
-  const parseResult = await model.generateContent({
+  const parseResult = await withRetry(() => model.generateContent({
     contents: [
       {
         role: 'user',
@@ -43,7 +58,7 @@ ${jobDescription}`
         ]
       }
     ]
-  });
+  }));
 
   const parseContent = parseResult.response.text();
   if (!parseContent) {
@@ -67,7 +82,7 @@ ${jobDescription}`
   if (!Array.isArray(parsedData.niceToHaveSkills))  parsedData.niceToHaveSkills  = [];
 
   // ── Call 2: Generate resume bullet point suggestions ──
-  const suggestionsResult = await model.generateContent({
+  const suggestionsResult = await withRetry(() => model.generateContent({
     contents: [
       {
         role: 'user',
@@ -92,7 +107,7 @@ Return ONLY this JSON:
         ]
       }
     ]
-  });
+  }));
 
   const suggestionsContent = suggestionsResult.response.text();
   if (!suggestionsContent) {
